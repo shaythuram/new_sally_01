@@ -4,13 +4,15 @@
   "description": "Electron app with Vue.js for recording system audio/video and microphone audio",
   "main": "main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:vue\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "dev": "concurrently \"npm run dev:vue\" \"npm run dev:server\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "dev:vue": "vite",
+    "dev:server": "node server.js",
     "build": "vite build",
     "build:electron": "npm run build && electron-builder",
     "preview": "vite preview",
     "electron": "electron .",
-    "dist": "npm run build && electron-builder --publish=never"
+    "dist": "npm run build && electron-builder --publish=never",
+    "start": "concurrently \"npm run dev:vue\" \"npm run dev:server\""
   },
   "keywords": ["electron", "vue", "recording", "desktop-capture"],
   "author": "Your Name",
@@ -25,7 +27,12 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
-    "vue": "^3.3.8"
+    "vue": "^3.3.8",
+    "@deepgram/sdk": "^3.4.0",
+    "express": "^4.18.2",
+    "ws": "^8.14.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
   },
   "build": {
     "appId": "com.example.electron-vue-recorder",
