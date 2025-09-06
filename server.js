@@ -68,6 +68,10 @@ wss.on('connection', (ws, req) => {
           handleStopTranscription(connectionId);
           break;
           
+        case 'update_diarization':
+          handleUpdateDiarization(connectionId, message);
+          break;
+          
         default:
           console.log('Unknown message type:', message.type);
       }
@@ -102,15 +106,18 @@ async function handleStartTranscription(connectionId, message) {
   try {
     console.log(`Starting transcription for connection ${connectionId}`);
     
+    // Get diarization setting from message (default to true for backward compatibility)
+    const enableDiarization = message.diarization !== undefined ? message.diarization : true;
+    
     // Create Deepgram connection
     const deepgramConnection = deepgram.listen.live({
       model: 'nova-2',
       language: 'en-US',
       smart_format: true,
       interim_results: true,
+      diarize: enableDiarization, // Enable/disable speaker diarization based on toggle
       encoding: 'linear16',
       sample_rate: 16000,
-      channels: 1
     });
 
     // Handle Deepgram responses
@@ -140,12 +147,18 @@ async function handleStartTranscription(connectionId, message) {
           state.lastInterimTranscript = cleanTranscript;
         }
 
-        console.log(`Transcription for ${connectionId}: ${cleanTranscript} (final: ${isFinal})`);
+        // Extract speaker information
+        const speaker = data.channel?.alternatives?.[0]?.words?.[0]?.speaker || null;
+        const speakerLabel = speaker !== null ? `Speaker ${speaker + 1}` : null;
+        
+        console.log(`Transcription for ${connectionId}: ${cleanTranscript} (final: ${isFinal})${speakerLabel ? ` [${speakerLabel}]` : ''}`);
         connection.ws.send(JSON.stringify({
           type: 'transcription',
           transcript: cleanTranscript,
           is_final: isFinal,
-          confidence: data.channel?.alternatives?.[0]?.confidence || 0
+          confidence: data.channel?.alternatives?.[0]?.confidence || 0,
+          speaker: speaker,
+          speaker_label: speakerLabel
         }));
       }
     });
@@ -199,6 +212,25 @@ function handleAudioData(connectionId, audioData) {
   } catch (error) {
     console.error('Error sending audio data:', error);
   }
+}
+
+function handleUpdateDiarization(connectionId, message) {
+  const connection = connections.get(connectionId);
+  if (!connection) return;
+
+  console.log(`Updating diarization for connection ${connectionId}: ${message.diarization}`);
+  
+  // Store the diarization setting for this connection
+  if (connection.deepgramConnection) {
+    // Note: Deepgram doesn't support changing diarization mid-stream
+    // We'll need to restart the connection with new settings
+    console.log('Diarization setting updated, will apply on next restart');
+  }
+  
+  connection.ws.send(JSON.stringify({
+    type: 'diarization_updated',
+    diarization: message.diarization
+  }));
 }
 
 function handleStopTranscription(connectionId) {

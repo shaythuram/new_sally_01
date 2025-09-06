@@ -73,20 +73,76 @@
         ✅ {{ systemSuccess }}
       </div>
 
-      <!-- System Audio Real-time Transcription Display -->
-      <div v-if="systemTranscribing || systemFinalTranscriptionText || systemInterimTranscriptionText" class="transcription-section">
-        <h3>📝 System Audio Live Transcription</h3>
+      <!-- System Audio Chat Display -->
+      <div class="chat-section">
+        <div class="chat-header">
+          <h3>📝 System Audio Chat</h3>
+          <div class="diarization-toggle">
+            <label class="toggle-label">
+              <input 
+                type="checkbox" 
+                v-model="diarizationEnabled"
+                :disabled="systemTranscribing"
+                class="toggle-input"
+                @change="onDiarizationToggle"
+              >
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">Speaker Diarization</span>
+            </label>
+            <div class="toggle-status">Status: {{ diarizationEnabled ? 'ON' : 'OFF' }}</div>
+          </div>
+        </div>
+        
+        <!-- Only show chat content when transcribing or has messages -->
+        <div v-if="systemTranscribing || systemMessages.length > 0">
         <div class="transcription-status">
           <span v-if="systemTranscribing" class="status recording">
             🔴 Transcribing System Audio...
           </span>
-          <span v-else-if="systemFinalTranscriptionText || systemInterimTranscriptionText" class="status stopped">
+          <span v-else-if="systemMessages.length > 0" class="status stopped">
             ⏹️ System Transcription Stopped
           </span>
         </div>
         
-        <div class="transcription-display">
-          <div class="transcript-text" v-html="formattedSystemTranscription"></div>
+        <!-- Speaker Legend -->
+        <div v-if="diarizationEnabled && systemSpeakers.size > 0" class="speaker-legend">
+          <h4>🎤 Speakers Detected:</h4>
+          <div class="speaker-list">
+            <span 
+              v-for="[speakerId, color] in systemSpeakers" 
+              :key="speakerId"
+              class="speaker-legend-item"
+              :style="{ backgroundColor: color + '20', color: color, borderColor: color }"
+            >
+              Speaker {{ speakerId + 1 }}
+            </span>
+          </div>
+        </div>
+        
+        <!-- System Messages Chat -->
+        <div class="chat-container system-chat">
+          <div class="chat-messages">
+            <div 
+              v-for="message in systemMessages" 
+              :key="message.id"
+              class="message system-message"
+              :style="{ '--speaker-color': getSpeakerColor(message.speakerId) }"
+            >
+              <div v-if="diarizationEnabled" class="message-header">
+                <span class="speaker-badge" :style="{ backgroundColor: getSpeakerColor(message.speakerId) }">
+                  {{ message.speakerLabel }}
+                </span>
+                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
+              </div>
+              <div v-else class="message-header">
+                <span class="speaker-badge system-badge">System Audio</span>
+                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
+              </div>
+              <div class="message-content">{{ message.text }}</div>
+            </div>
+          </div>
+        </div>
+        
         </div>
         
         <div v-if="systemTranscriptionError" class="error-message">
@@ -141,20 +197,39 @@
         ✅ {{ micSuccess }}
       </div>
 
-      <!-- Real-time Transcription Display -->
-      <div v-if="isTranscribing || finalTranscriptionText || interimTranscriptionText" class="transcription-section">
-        <h3>📝 Live Transcription</h3>
+      <!-- Microphone Chat Display -->
+      <div v-if="isTranscribing || chatMessages.length > 0" class="chat-section">
+        <h3>📝 Microphone Chat (5s bursts)</h3>
         <div class="transcription-status">
           <span v-if="isTranscribing" class="status recording">
-            🔴 Transcribing...
+            🔴 Transcribing Microphone...
           </span>
-          <span v-else-if="finalTranscriptionText || interimTranscriptionText" class="status stopped">
-            ⏹️ Transcription Stopped
+          <span v-else-if="chatMessages.length > 0" class="status stopped">
+            ⏹️ Microphone Transcription Stopped
           </span>
         </div>
         
-        <div class="transcription-display">
-          <div class="transcript-text" v-html="formattedTranscription"></div>
+        <!-- Current Message Preview -->
+        <div v-if="currentMicMessage" class="current-message-preview">
+          <div class="preview-label">Current ({{ Math.ceil(micBurstInterval / 1000) }}s burst):</div>
+          <div class="preview-text">{{ currentMicMessage }}</div>
+        </div>
+        
+        <!-- Microphone Messages Chat -->
+        <div class="chat-container mic-chat">
+          <div class="chat-messages">
+            <div 
+              v-for="message in chatMessages" 
+              :key="message.id"
+              class="message mic-message"
+            >
+              <div class="message-header">
+                <span class="speaker-badge mic-badge">You</span>
+                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
+              </div>
+              <div class="message-content">{{ message.text }}</div>
+            </div>
+          </div>
         </div>
         
         <div v-if="transcriptionError" class="error-message">
@@ -166,7 +241,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 
 // System recording state
 const systemRecording = ref(false)
@@ -191,6 +266,9 @@ const systemWs = ref(null)
 const systemAudioContext = ref(null)
 const systemProcessor = ref(null)
 const systemMicrophone = ref(null)
+const systemSpeakers = ref(new Map()) // Track speakers and their colors
+const systemMessages = ref([]) // Store system speaker messages
+const diarizationEnabled = ref(true) // Toggle for speaker diarization
 
 // Microphone recording state
 const micRecording = ref(false)
@@ -212,6 +290,143 @@ const audioContext = ref(null)
 const processor = ref(null)
 const microphone = ref(null)
 
+// Chat messages
+const chatMessages = ref([])
+const currentMicMessage = ref('')
+const micBurstTimer = ref(null)
+const micBurstInterval = 5000 // 5 seconds
+const systemBurstTimer = ref(null)
+const systemBurstInterval = 5000 // 5 seconds
+
+// Speaker color generation
+const getSpeakerColor = (speakerId) => {
+  if (!systemSpeakers.value.has(speakerId)) {
+    const colors = [
+      '#667eea', '#764ba2', '#f093fb', '#f5576c', 
+      '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
+      '#ffecd2', '#fcb69f', '#a8edea', '#fed6e3'
+    ]
+    const colorIndex = systemSpeakers.value.size % colors.length
+    systemSpeakers.value.set(speakerId, colors[colorIndex])
+  }
+  return systemSpeakers.value.get(speakerId)
+}
+
+// Message management functions
+const addSystemMessage = (speakerId, speakerLabel, text, isFinal = true) => {
+  if (diarizationEnabled.value) {
+    // Individual speaker messages
+    const message = {
+      id: Date.now() + Math.random(),
+      type: 'system',
+      speakerId,
+      speakerLabel,
+      text: text.trim(),
+      timestamp: new Date(),
+      isFinal
+    }
+    systemMessages.value.push(message)
+  } else {
+    // Accumulate text for burst messages (similar to mic)
+    if (!systemMessages.value.length || systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
+      // Create new message or add to existing accumulating message
+      if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
+        systemMessages.value[systemMessages.value.length - 1].text += ' ' + text.trim()
+        systemMessages.value[systemMessages.value.length - 1].timestamp = new Date()
+      } else {
+        const message = {
+          id: Date.now() + Math.random(),
+          type: 'system',
+          speakerId: 0,
+          speakerLabel: 'System Audio',
+          text: text.trim(),
+          timestamp: new Date(),
+          isFinal: false,
+          isAccumulating: true
+        }
+        systemMessages.value.push(message)
+      }
+    } else {
+      // Create new accumulating message
+      const message = {
+        id: Date.now() + Math.random(),
+        type: 'system',
+        speakerId: 0,
+        speakerLabel: 'System Audio',
+        text: text.trim(),
+        timestamp: new Date(),
+        isFinal: false,
+        isAccumulating: true
+      }
+      systemMessages.value.push(message)
+    }
+  }
+}
+
+const addMicMessage = (text, isFinal = true) => {
+  const message = {
+    id: Date.now() + Math.random(),
+    type: 'microphone',
+    text: text.trim(),
+    timestamp: new Date(),
+    isFinal
+  }
+  chatMessages.value.push(message)
+}
+
+const startMicBurstTimer = () => {
+  if (micBurstTimer.value) {
+    clearInterval(micBurstTimer.value)
+  }
+  
+  micBurstTimer.value = setInterval(() => {
+    if (currentMicMessage.value.trim()) {
+      addMicMessage(currentMicMessage.value, true)
+      currentMicMessage.value = ''
+    }
+  }, micBurstInterval)
+}
+
+const stopMicBurstTimer = () => {
+  if (micBurstTimer.value) {
+    clearInterval(micBurstTimer.value)
+    micBurstTimer.value = null
+  }
+  
+  // Add any remaining message
+  if (currentMicMessage.value.trim()) {
+    addMicMessage(currentMicMessage.value, true)
+    currentMicMessage.value = ''
+  }
+}
+
+const startSystemBurstTimer = () => {
+  if (systemBurstTimer.value) {
+    clearInterval(systemBurstTimer.value)
+  }
+  
+  systemBurstTimer.value = setInterval(() => {
+    // Finalize any accumulating system messages
+    if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
+      systemMessages.value[systemMessages.value.length - 1].isAccumulating = false
+      systemMessages.value[systemMessages.value.length - 1].isFinal = true
+    }
+  }, systemBurstInterval)
+}
+
+const stopSystemBurstTimer = () => {
+  if (systemBurstTimer.value) {
+    clearInterval(systemBurstTimer.value)
+    systemBurstTimer.value = null
+  }
+  
+  // Finalize any remaining accumulating message
+  if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
+    systemMessages.value[systemMessages.value.length - 1].isAccumulating = false
+    systemMessages.value[systemMessages.value.length - 1].isFinal = true
+  }
+}
+
 // Load screen sources on mount
 onMounted(async () => {
   try {
@@ -227,6 +442,8 @@ onMounted(async () => {
 onUnmounted(() => {
   if (systemTimer) clearInterval(systemTimer)
   if (micTimer) clearInterval(micTimer)
+  if (micBurstTimer.value) clearInterval(micBurstTimer.value)
+  if (systemBurstTimer.value) clearInterval(systemBurstTimer.value)
   if (systemMediaRecorder.value) systemMediaRecorder.value.stop()
   if (micMediaRecorder.value) micMediaRecorder.value.stop()
   
@@ -401,8 +618,9 @@ const startMicRecording = async () => {
       micRecordingTime.value++
     }, 1000)
 
-    // Start real-time transcription
+    // Start burst-based transcription
     await startTranscription(stream)
+    startMicBurstTimer()
 
   } catch (error) {
     console.error('Error starting microphone recording:', error)
@@ -427,8 +645,9 @@ const stopMicRecording = () => {
     }
   }
   
-  // Stop transcription
+  // Stop transcription and burst timer
   stopTranscription()
+  stopMicBurstTimer()
 }
 
 // Utility function to format time
@@ -436,6 +655,11 @@ const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+}
+
+// Format message timestamp
+const formatMessageTime = (timestamp) => {
+  return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 // Transcription functions
@@ -451,6 +675,8 @@ const startTranscription = async (stream) => {
       finalTranscriptionText.value = ''
       interimTranscriptionText.value = ''
       transcriptionError.value = ''
+      currentMicMessage.value = ''
+      chatMessages.value = [] // Clear previous messages
       
       // Send start transcription message
       ws.value.send(JSON.stringify({
@@ -468,11 +694,10 @@ const startTranscription = async (stream) => {
         case 'transcription':
           if (data.transcript && data.transcript.trim()) {
             if (data.is_final) {
-              // Add final transcript to the final text
-              finalTranscriptionText.value += data.transcript + ' '
-              interimTranscriptionText.value = '' // Clear interim when we get final
+              // Add to current mic message for burst processing
+              currentMicMessage.value += data.transcript + ' '
             } else {
-              // Update interim results
+              // Update interim results (not used in burst mode)
               interimTranscriptionText.value = data.transcript
             }
           }
@@ -584,14 +809,22 @@ const startSystemTranscription = async (stream) => {
       systemFinalTranscriptionText.value = ''
       systemInterimTranscriptionText.value = ''
       systemTranscriptionError.value = ''
+      systemSpeakers.value.clear() // Reset speakers for new session
+      systemMessages.value = [] // Clear previous messages
       
-      // Send start transcription message
+      // Send start transcription message with diarization setting
       systemWs.value.send(JSON.stringify({
-        type: 'start_transcription'
+        type: 'start_transcription',
+        diarization: diarizationEnabled.value
       }))
       
       // Set up audio processing for system audio
       setupSystemAudioProcessing(stream)
+      
+      // Start burst timer if diarization is disabled
+      if (!diarizationEnabled.value) {
+        startSystemBurstTimer()
+      }
     }
     
     systemWs.value.onmessage = (event) => {
@@ -601,12 +834,17 @@ const startSystemTranscription = async (stream) => {
         case 'transcription':
           if (data.transcript && data.transcript.trim()) {
             if (data.is_final) {
-              // Add final transcript to the final text
-              systemFinalTranscriptionText.value += data.transcript + ' '
-              systemInterimTranscriptionText.value = '' // Clear interim when we get final
+              // Add system message immediately for chat format
+              addSystemMessage(
+                data.speaker || 0, 
+                data.speaker_label || 'Speaker 1', 
+                data.transcript, 
+                true
+              )
             } else {
-              // Update interim results
-              systemInterimTranscriptionText.value = data.transcript
+              // Update interim results (not used in chat mode)
+              const speakerInfo = data.speaker_label ? `[${data.speaker_label}] ` : ''
+              systemInterimTranscriptionText.value = speakerInfo + data.transcript
             }
           }
           break
@@ -701,47 +939,63 @@ const stopSystemTranscription = () => {
     systemMicrophone.value = null
   }
   
+  // Stop burst timer
+  stopSystemBurstTimer()
+  
   systemTranscribing.value = false
 }
 
-// Computed property for formatted transcription
-const formattedTranscription = computed(() => {
-  const finalText = finalTranscriptionText.value || ''
-  const interimText = interimTranscriptionText.value || ''
-  
-  if (!finalText && !interimText) return ''
-  
-  // Combine final and interim text
-  let combinedText = finalText
-  if (interimText) {
-    combinedText += `<span class="interim">${interimText}</span>`
-  }
-  
-  // Replace newlines with <br> and preserve HTML formatting
-  return combinedText
-    .replace(/\n/g, '<br>')
-    .replace(/\s+/g, ' ')
-    .trim()
-})
+// Computed properties for chat interface
+const hasSystemMessages = computed(() => systemMessages.value.length > 0)
+const hasMicMessages = computed(() => chatMessages.value.length > 0)
 
-// Computed property for formatted system transcription
-const formattedSystemTranscription = computed(() => {
-  const finalText = systemFinalTranscriptionText.value || ''
-  const interimText = systemInterimTranscriptionText.value || ''
+// Auto-scroll chat containers
+const scrollToBottom = (containerClass) => {
+  nextTick(() => {
+    const container = document.querySelector(`.${containerClass} .chat-messages`)
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
+  })
+}
+
+// Watch for new messages and auto-scroll
+watch(systemMessages, () => {
+  scrollToBottom('system-chat')
+}, { deep: true })
+
+watch(chatMessages, () => {
+  scrollToBottom('mic-chat')
+}, { deep: true })
+
+// Handle diarization toggle change
+const onDiarizationToggle = () => {
+  console.log('Diarization toggle clicked, new value:', diarizationEnabled.value)
+}
+
+// Watch for diarization toggle changes
+watch(diarizationEnabled, (newValue) => {
+  console.log('Diarization toggle changed to:', newValue)
   
-  if (!finalText && !interimText) return ''
-  
-  // Combine final and interim text
-  let combinedText = finalText
-  if (interimText) {
-    combinedText += `<span class="interim">${interimText}</span>`
+  // If currently transcribing, restart with new setting
+  if (systemTranscribing.value && systemWs.value) {
+    console.log('Restarting system transcription with new diarization setting')
+    
+    // Send new diarization setting to server
+    systemWs.value.send(JSON.stringify({
+      type: 'update_diarization',
+      diarization: newValue
+    }))
+    
+    // Clear current messages and restart burst timer if needed
+    if (!newValue) {
+      // Diarization disabled - start burst timer
+      startSystemBurstTimer()
+    } else {
+      // Diarization enabled - stop burst timer
+      stopSystemBurstTimer()
+    }
   }
-  
-  // Replace newlines with <br> and preserve HTML formatting
-  return combinedText
-    .replace(/\n/g, '<br>')
-    .replace(/\s+/g, ' ')
-    .trim()
 })
 </script>
 
@@ -949,8 +1203,8 @@ const formattedSystemTranscription = computed(() => {
   100% { transform: rotate(360deg); }
 }
 
-/* Transcription Styles */
-.transcription-section {
+/* Chat Styles */
+.chat-section {
   margin-top: 30px;
   padding: 25px;
   background: #f8f9fa;
@@ -958,7 +1212,7 @@ const formattedSystemTranscription = computed(() => {
   border: 1px solid #e9ecef;
 }
 
-.transcription-section h3 {
+.chat-section h3 {
   margin: 0 0 20px 0;
   color: #2c3e50;
   font-size: 1.3rem;
@@ -971,30 +1225,248 @@ const formattedSystemTranscription = computed(() => {
   margin-bottom: 20px;
 }
 
-.transcription-display {
+.chat-container {
   background: white;
   border: 2px solid #e9ecef;
-  border-radius: 8px;
-  padding: 20px;
-  min-height: 120px;
-  max-height: 300px;
+  border-radius: 12px;
+  max-height: 400px;
   overflow-y: auto;
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: #2c3e50;
+  padding: 15px;
 }
 
-.transcript-text {
-  white-space: pre-wrap;
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  position: relative;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.system-message {
+  background: #f1f3f4;
+  border: 1px solid #e0e0e0;
+  align-self: flex-start;
+  margin-right: auto;
+}
+
+.mic-message {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.speaker-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.system-message .speaker-badge {
+  background: var(--speaker-color, #667eea);
+  color: white;
+}
+
+.mic-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.message-time {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  color: #666;
+}
+
+.mic-message .message-time {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.message-content {
+  font-size: 0.95rem;
+  line-height: 1.4;
   word-wrap: break-word;
 }
 
-.transcript-text .interim {
-  color: #667eea;
+.current-message-preview {
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 15px;
+}
+
+.preview-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1976d2;
+  margin-bottom: 4px;
+}
+
+.preview-text {
+  font-size: 0.9rem;
+  color: #424242;
   font-style: italic;
-  background: rgba(102, 126, 234, 0.1);
-  padding: 2px 4px;
-  border-radius: 4px;
+}
+
+/* Chat Header Styles */
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.chat-header h3 {
+  margin: 0;
+}
+
+/* Toggle Styles */
+.diarization-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-input {
+  display: none;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 50px;
+  height: 24px;
+  background: #ccc;
+  border-radius: 12px;
+  margin-right: 10px;
+  transition: background 0.3s ease;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-input:checked + .toggle-slider {
+  background: #667eea;
+}
+
+.toggle-input:checked + .toggle-slider::before {
+  transform: translateX(26px);
+}
+
+.toggle-input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.toggle-status {
+  font-size: 0.8rem;
+  color: #666;
+  margin-left: 10px;
+  font-weight: 500;
+}
+
+/* System Badge Styles */
+.system-badge {
+  background: #6c757d !important;
+  color: white !important;
+}
+
+.speaker-label {
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.speaker-label:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Speaker Legend Styles */
+.speaker-legend {
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.speaker-legend h4 {
+  margin: 0 0 10px 0;
+  color: #2c3e50;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.speaker-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.speaker-legend-item {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+  border: 1px solid;
+  transition: all 0.2s ease;
+}
+
+.speaker-legend-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 /* Responsive Design */
