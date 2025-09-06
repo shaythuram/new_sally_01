@@ -74,13 +74,13 @@
       </div>
 
       <!-- System Audio Real-time Transcription Display -->
-      <div v-if="systemTranscribing || systemTranscriptionText" class="transcription-section">
+      <div v-if="systemTranscribing || systemFinalTranscriptionText || systemInterimTranscriptionText" class="transcription-section">
         <h3>📝 System Audio Live Transcription</h3>
         <div class="transcription-status">
           <span v-if="systemTranscribing" class="status recording">
             🔴 Transcribing System Audio...
           </span>
-          <span v-else-if="systemTranscriptionText" class="status stopped">
+          <span v-else-if="systemFinalTranscriptionText || systemInterimTranscriptionText" class="status stopped">
             ⏹️ System Transcription Stopped
           </span>
         </div>
@@ -142,13 +142,13 @@
       </div>
 
       <!-- Real-time Transcription Display -->
-      <div v-if="isTranscribing || transcriptionText" class="transcription-section">
+      <div v-if="isTranscribing || finalTranscriptionText || interimTranscriptionText" class="transcription-section">
         <h3>📝 Live Transcription</h3>
         <div class="transcription-status">
           <span v-if="isTranscribing" class="status recording">
             🔴 Transcribing...
           </span>
-          <span v-else-if="transcriptionText" class="status stopped">
+          <span v-else-if="finalTranscriptionText || interimTranscriptionText" class="status stopped">
             ⏹️ Transcription Stopped
           </span>
         </div>
@@ -184,6 +184,8 @@ let systemTimer = null
 // System transcription state
 const systemTranscribing = ref(false)
 const systemTranscriptionText = ref('')
+const systemFinalTranscriptionText = ref('')
+const systemInterimTranscriptionText = ref('')
 const systemTranscriptionError = ref('')
 const systemWs = ref(null)
 const systemAudioContext = ref(null)
@@ -202,6 +204,8 @@ let micTimer = null
 // Transcription state
 const isTranscribing = ref(false)
 const transcriptionText = ref('')
+const finalTranscriptionText = ref('')
+const interimTranscriptionText = ref('')
 const transcriptionError = ref('')
 const ws = ref(null)
 const audioContext = ref(null)
@@ -444,6 +448,8 @@ const startTranscription = async (stream) => {
       console.log('WebSocket connected')
       isTranscribing.value = true
       transcriptionText.value = ''
+      finalTranscriptionText.value = ''
+      interimTranscriptionText.value = ''
       transcriptionError.value = ''
       
       // Send start transcription message
@@ -462,17 +468,12 @@ const startTranscription = async (stream) => {
         case 'transcription':
           if (data.transcript && data.transcript.trim()) {
             if (data.is_final) {
-              transcriptionText.value += data.transcript + ' '
+              // Add final transcript to the final text
+              finalTranscriptionText.value += data.transcript + ' '
+              interimTranscriptionText.value = '' // Clear interim when we get final
             } else {
-              // Update with interim results
-              const currentText = transcriptionText.value
-              const lastSpaceIndex = currentText.lastIndexOf(' ')
-              if (lastSpaceIndex !== -1) {
-                transcriptionText.value = currentText.substring(0, lastSpaceIndex + 1) + 
-                  `<span class="interim">${data.transcript}</span>`
-              } else {
-                transcriptionText.value = `<span class="interim">${data.transcript}</span>`
-              }
+              // Update interim results
+              interimTranscriptionText.value = data.transcript
             }
           }
           break
@@ -580,6 +581,8 @@ const startSystemTranscription = async (stream) => {
       console.log('System WebSocket connected')
       systemTranscribing.value = true
       systemTranscriptionText.value = ''
+      systemFinalTranscriptionText.value = ''
+      systemInterimTranscriptionText.value = ''
       systemTranscriptionError.value = ''
       
       // Send start transcription message
@@ -598,17 +601,12 @@ const startSystemTranscription = async (stream) => {
         case 'transcription':
           if (data.transcript && data.transcript.trim()) {
             if (data.is_final) {
-              systemTranscriptionText.value += data.transcript + ' '
+              // Add final transcript to the final text
+              systemFinalTranscriptionText.value += data.transcript + ' '
+              systemInterimTranscriptionText.value = '' // Clear interim when we get final
             } else {
-              // Update with interim results
-              const currentText = systemTranscriptionText.value
-              const lastSpaceIndex = currentText.lastIndexOf(' ')
-              if (lastSpaceIndex !== -1) {
-                systemTranscriptionText.value = currentText.substring(0, lastSpaceIndex + 1) + 
-                  `<span class="interim">${data.transcript}</span>`
-              } else {
-                systemTranscriptionText.value = `<span class="interim">${data.transcript}</span>`
-              }
+              // Update interim results
+              systemInterimTranscriptionText.value = data.transcript
             }
           }
           break
@@ -708,10 +706,19 @@ const stopSystemTranscription = () => {
 
 // Computed property for formatted transcription
 const formattedTranscription = computed(() => {
-  if (!transcriptionText.value) return ''
+  const finalText = finalTranscriptionText.value || ''
+  const interimText = interimTranscriptionText.value || ''
+  
+  if (!finalText && !interimText) return ''
+  
+  // Combine final and interim text
+  let combinedText = finalText
+  if (interimText) {
+    combinedText += `<span class="interim">${interimText}</span>`
+  }
   
   // Replace newlines with <br> and preserve HTML formatting
-  return transcriptionText.value
+  return combinedText
     .replace(/\n/g, '<br>')
     .replace(/\s+/g, ' ')
     .trim()
@@ -719,10 +726,19 @@ const formattedTranscription = computed(() => {
 
 // Computed property for formatted system transcription
 const formattedSystemTranscription = computed(() => {
-  if (!systemTranscriptionText.value) return ''
+  const finalText = systemFinalTranscriptionText.value || ''
+  const interimText = systemInterimTranscriptionText.value || ''
+  
+  if (!finalText && !interimText) return ''
+  
+  // Combine final and interim text
+  let combinedText = finalText
+  if (interimText) {
+    combinedText += `<span class="interim">${interimText}</span>`
+  }
   
   // Replace newlines with <br> and preserve HTML formatting
-  return systemTranscriptionText.value
+  return combinedText
     .replace(/\n/g, '<br>')
     .replace(/\s+/g, ' ')
     .trim()

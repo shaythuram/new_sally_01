@@ -28,6 +28,9 @@ const deepgram = createClient(DEEPGRAM_API_KEY);
 const connections = new Map();
 let connectionCounter = 0;
 
+// Track transcription state for each connection
+const transcriptionState = new Map();
+
 wss.on('connection', (ws, req) => {
   console.log('New WebSocket connection established');
   
@@ -39,6 +42,13 @@ wss.on('connection', (ws, req) => {
     ws,
     deepgramConnection,
     isTranscribing: false
+  });
+
+  // Initialize transcription state
+  transcriptionState.set(connectionId, {
+    lastFinalTranscript: '',
+    lastInterimTranscript: '',
+    isProcessing: false
   });
 
   ws.on('message', async (data) => {
@@ -74,12 +84,14 @@ wss.on('connection', (ws, req) => {
     console.log(`WebSocket connection ${connectionId} closed`);
     handleStopTranscription(connectionId);
     connections.delete(connectionId);
+    transcriptionState.delete(connectionId);
   });
 
   ws.on('error', (error) => {
     console.error(`WebSocket error for ${connectionId}:`, error);
     handleStopTranscription(connectionId);
     connections.delete(connectionId);
+    transcriptionState.delete(connectionId);
   });
 });
 
@@ -105,11 +117,34 @@ async function handleStartTranscription(connectionId, message) {
     deepgramConnection.on('Results', (data) => {
       const transcript = data.channel?.alternatives?.[0]?.transcript;
       if (transcript && transcript.trim()) {
-        console.log(`Transcription for ${connectionId}: ${transcript} (final: ${data.is_final})`);
+        const state = transcriptionState.get(connectionId);
+        if (!state) return;
+
+        const isFinal = data.is_final || false;
+        const cleanTranscript = transcript.trim();
+        
+        // Prevent duplicate final results
+        if (isFinal) {
+          if (state.lastFinalTranscript === cleanTranscript) {
+            console.log(`Skipping duplicate final transcript for ${connectionId}`);
+            return;
+          }
+          state.lastFinalTranscript = cleanTranscript;
+          state.lastInterimTranscript = ''; // Clear interim when we get final
+        } else {
+          // For interim results, check if it's different from last interim
+          if (state.lastInterimTranscript === cleanTranscript) {
+            console.log(`Skipping duplicate interim transcript for ${connectionId}`);
+            return;
+          }
+          state.lastInterimTranscript = cleanTranscript;
+        }
+
+        console.log(`Transcription for ${connectionId}: ${cleanTranscript} (final: ${isFinal})`);
         connection.ws.send(JSON.stringify({
           type: 'transcription',
-          transcript: transcript,
-          is_final: data.is_final || false,
+          transcript: cleanTranscript,
+          is_final: isFinal,
           confidence: data.channel?.alternatives?.[0]?.confidence || 0
         }));
       }
@@ -178,6 +213,14 @@ function handleStopTranscription(connectionId) {
   }
   
   connection.isTranscribing = false;
+  
+  // Reset transcription state
+  const state = transcriptionState.get(connectionId);
+  if (state) {
+    state.lastFinalTranscript = '';
+    state.lastInterimTranscript = '';
+    state.isProcessing = false;
+  }
   
   connection.ws.send(JSON.stringify({
     type: 'transcription_stopped',
