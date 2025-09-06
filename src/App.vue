@@ -1,241 +1,144 @@
 <template>
-  <div class="container">
-    <div class="header">
-      <h1>🎥 Electron Recorder with Real-time Transcription</h1>
-      <p>Record system audio/video and microphone audio with live transcription</p>
-    </div>
-
-    <!-- System Audio/Video Recording Section -->
-    <div class="recording-section">
-      <h2>
-        🖥️ System Audio & Video Recording
-        <span v-if="systemRecording" class="loading"></span>
-      </h2>
-      <p>Capture your screen, windows, and system audio as a video file</p>
-      
+  <div class="unified-container">
+    <!-- Header with Controls -->
+    <div class="unified-header">
+      <div class="header-content">
+        <h1>🎥 Live Transcription Chat</h1>
+        <div class="controls-section">
+          <!-- Screen Source Selection -->
       <div class="source-selector">
-        <label for="screen-source">Select Screen/Window:</label>
         <select 
-          id="screen-source" 
           v-model="selectedScreenSource"
-          :disabled="systemRecording"
+              :disabled="isRecording"
+              class="source-select"
         >
-          <option value="">Choose a source...</option>
+              <option value="">Choose screen/window...</option>
           <option 
             v-for="source in screenSources" 
             :key="source.id" 
             :value="source.id"
           >
-            {{ source.name }} ({{ source.id }})
+                {{ source.name }}
           </option>
         </select>
       </div>
 
-      <div class="controls">
-        <button 
-          class="btn btn-primary"
-          @click="startSystemRecording"
-          :disabled="systemRecording || !selectedScreenSource"
-        >
-          🎬 Start Recording
-        </button>
-        
-        <button 
-          class="btn btn-danger"
-          @click="stopSystemRecording"
-          :disabled="!systemRecording"
-        >
-          ⏹️ Stop Recording
-        </button>
-        
-        <div v-if="systemRecording" class="status recording">
-          🔴 Recording System Audio/Video
-        </div>
-        
-        <div v-if="!systemRecording && systemRecordingTime > 0" class="status stopped">
-          ✅ Recording Stopped
-        </div>
-      </div>
-
-      <div v-if="systemRecording" class="timer">
-        {{ formatTime(systemRecordingTime) }}
-      </div>
-
-      <div v-if="systemPreview" class="recording-preview">
-        <video ref="systemVideoRef" autoplay muted></video>
-      </div>
-
-      <div v-if="systemError" class="error-message">
-        ❌ {{ systemError }}
-      </div>
-
-      <div v-if="systemSuccess" class="success-message">
-        ✅ {{ systemSuccess }}
-      </div>
-
-      <!-- System Audio Chat Display -->
-      <div class="chat-section">
-        <div class="chat-header">
-          <h3>📝 System Audio Chat</h3>
+          <!-- Diarization Toggle -->
           <div class="diarization-toggle">
             <label class="toggle-label">
               <input 
                 type="checkbox" 
                 v-model="diarizationEnabled"
-                :disabled="systemTranscribing"
+                :disabled="isRecording"
                 class="toggle-input"
                 @change="onDiarizationToggle"
               >
               <span class="toggle-slider"></span>
               <span class="toggle-text">Speaker Diarization</span>
             </label>
-            <div class="toggle-status">Status: {{ diarizationEnabled ? 'ON' : 'OFF' }}</div>
           </div>
-        </div>
-        
-        <!-- Only show chat content when transcribing or has messages -->
-        <div v-if="systemTranscribing || systemMessages.length > 0">
-        <div class="transcription-status">
-          <span v-if="systemTranscribing" class="status recording">
-            🔴 Transcribing System Audio...
-          </span>
-          <span v-else-if="systemMessages.length > 0" class="status stopped">
-            ⏹️ System Transcription Stopped
-          </span>
-        </div>
-        
-        <!-- Speaker Legend -->
-        <div v-if="diarizationEnabled && systemSpeakers.size > 0" class="speaker-legend">
-          <h4>🎤 Speakers Detected:</h4>
-          <div class="speaker-list">
-            <span 
-              v-for="[speakerId, color] in systemSpeakers" 
-              :key="speakerId"
-              class="speaker-legend-item"
-              :style="{ backgroundColor: color + '20', color: color, borderColor: color }"
+
+          <!-- Main Control Buttons -->
+          <div class="main-controls">
+        <button 
+              class="btn btn-primary btn-large"
+              @click="startUnifiedRecording"
+              :disabled="isRecording || !selectedScreenSource"
             >
-              Speaker {{ speakerId + 1 }}
-            </span>
-          </div>
-        </div>
+              🎬 Start Transcription
+        </button>
         
-        <!-- System Messages Chat -->
-        <div class="chat-container system-chat">
-          <div class="chat-messages">
-            <div 
-              v-for="message in systemMessages" 
-              :key="message.id"
-              class="message system-message"
-              :style="{ '--speaker-color': getSpeakerColor(message.speakerId) }"
+        <button 
+              class="btn btn-danger btn-large"
+              @click="stopUnifiedRecording"
+              :disabled="!isRecording"
             >
-              <div v-if="diarizationEnabled" class="message-header">
-                <span class="speaker-badge" :style="{ backgroundColor: getSpeakerColor(message.speakerId) }">
-                  {{ message.speakerLabel }}
-                </span>
-                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
-              </div>
-              <div v-else class="message-header">
-                <span class="speaker-badge system-badge">System Audio</span>
-                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
-              </div>
-              <div class="message-content">{{ message.text }}</div>
-            </div>
-          </div>
+              ⏹️ Stop Transcription
+        </button>
         </div>
         
+          <!-- Status and Timer -->
+          <div class="status-section">
+            <div v-if="isRecording" class="status recording">
+              🔴 Live Transcription Active
         </div>
-        
-        <div v-if="systemTranscriptionError" class="error-message">
-          ❌ {{ systemTranscriptionError }}
-        </div>
+            <div v-if="isRecording" class="timer">
+              {{ formatTime(recordingTime) }}
       </div>
+      </div>
+      </div>
+      </div>
+      </div>
+
+    <!-- Unified Chat Interface -->
+    <div class="unified-chat">
+      <!-- Speaker Legend (when diarization enabled) -->
+      <div v-if="diarizationEnabled && systemSpeakers.size > 0" class="speaker-legend">
+        <h4>🎤 Speakers Detected:</h4>
+        <div class="speaker-list">
+          <span 
+            v-for="[speakerId, color] in systemSpeakers" 
+            :key="speakerId"
+            class="speaker-legend-item"
+            :style="{ backgroundColor: color + '20', color: color, borderColor: color }"
+          >
+            Speaker {{ speakerId + 1 }}
+          </span>
+        </div>
+        </div>
+        
+      <!-- Current Message Preview -->
+      <div v-if="currentMicMessage" class="current-message-preview">
+        <div class="preview-label">You are saying:</div>
+        <div class="preview-text">{{ currentMicMessage }}</div>
     </div>
 
-    <!-- Microphone Audio Recording Section -->
-    <div class="recording-section">
-      <h2>
-        🎤 Microphone Audio Recording & Live Transcription
-        <span v-if="micRecording" class="loading"></span>
-      </h2>
-      <p>Record audio from your microphone with real-time transcription</p>
-
-      <div class="controls">
-        <button 
-          class="btn btn-primary"
-          @click="startMicRecording"
-          :disabled="micRecording"
-        >
-          🎙️ Start Recording
-        </button>
-        
-        <button 
-          class="btn btn-danger"
-          @click="stopMicRecording"
-          :disabled="!micRecording"
-        >
-          ⏹️ Stop Recording
-        </button>
-        
-        <div v-if="micRecording" class="status recording">
-          🔴 Recording Microphone
+      <!-- Unified Chat Messages -->
+      <div class="chat-container">
+        <div class="chat-messages" ref="chatMessagesRef">
+          <div 
+            v-for="message in allMessages" 
+            :key="message.id"
+            class="message"
+            :class="[message.type === 'microphone' ? 'mic-message' : 'system-message']"
+            :style="message.type === 'system' && diarizationEnabled ? { '--speaker-color': getSpeakerColor(message.speakerId) } : {}"
+          >
+            <div class="message-header">
+              <span 
+                v-if="message.type === 'microphone'"
+                class="speaker-badge mic-badge"
+              >
+                You
+              </span>
+              <span 
+                v-else-if="diarizationEnabled"
+                class="speaker-badge" 
+                :style="{ backgroundColor: getSpeakerColor(message.speakerId) }"
+              >
+                {{ message.speakerLabel }}
+              </span>
+              <span 
+                v-else
+                class="speaker-badge system-badge"
+              >
+                System Audio
+              </span>
+              <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
         </div>
-        
-        <div v-if="!micRecording && micRecordingTime > 0" class="status stopped">
-          ✅ Recording Stopped
-        </div>
-      </div>
-
-      <div v-if="micRecording" class="timer">
-        {{ formatTime(micRecordingTime) }}
-      </div>
-
-      <div v-if="micError" class="error-message">
-        ❌ {{ micError }}
-      </div>
-
-      <div v-if="micSuccess" class="success-message">
-        ✅ {{ micSuccess }}
-      </div>
-
-      <!-- Microphone Chat Display -->
-      <div v-if="isTranscribing || chatMessages.length > 0" class="chat-section">
-        <h3>📝 Microphone Chat (5s bursts)</h3>
-        <div class="transcription-status">
-          <span v-if="isTranscribing" class="status recording">
-            🔴 Transcribing Microphone...
-          </span>
-          <span v-else-if="chatMessages.length > 0" class="status stopped">
-            ⏹️ Microphone Transcription Stopped
-          </span>
-        </div>
-        
-        <!-- Current Message Preview -->
-        <div v-if="currentMicMessage" class="current-message-preview">
-          <div class="preview-label">Current ({{ Math.ceil(micBurstInterval / 1000) }}s burst):</div>
-          <div class="preview-text">{{ currentMicMessage }}</div>
-        </div>
-        
-        <!-- Microphone Messages Chat -->
-        <div class="chat-container mic-chat">
-          <div class="chat-messages">
-            <div 
-              v-for="message in chatMessages" 
-              :key="message.id"
-              class="message mic-message"
-            >
-              <div class="message-header">
-                <span class="speaker-badge mic-badge">You</span>
-                <span class="message-time">{{ formatMessageTime(message.timestamp) }}</span>
-              </div>
-              <div class="message-content">{{ message.text }}</div>
-            </div>
-          </div>
-        </div>
-        
-        <div v-if="transcriptionError" class="error-message">
-          ❌ {{ transcriptionError }}
+            <div class="message-content">{{ message.text }}</div>
         </div>
       </div>
+      </div>
+
+      <!-- Error Messages -->
+      <div v-if="systemTranscriptionError || transcriptionError" class="error-message">
+        ❌ {{ systemTranscriptionError || transcriptionError }}
+      </div>
+      </div>
+
+    <!-- Video Preview (when recording) -->
+    <div v-if="systemPreview" class="video-preview">
+      <video ref="systemVideoRef" autoplay muted></video>
     </div>
   </div>
 </template>
@@ -243,55 +146,37 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 
-// System recording state
-const systemRecording = ref(false)
-const systemRecordingTime = ref(0)
+// Unified recording state
+const isRecording = ref(false)
+const recordingTime = ref(0)
 const systemPreview = ref(false)
-const systemError = ref('')
-const systemSuccess = ref('')
 const selectedScreenSource = ref('')
 const screenSources = ref([])
 const systemVideoRef = ref(null)
 const systemMediaRecorder = ref(null)
 const systemChunks = ref([])
-let systemTimer = null
-
-// System transcription state
-const systemTranscribing = ref(false)
-const systemTranscriptionText = ref('')
-const systemFinalTranscriptionText = ref('')
-const systemInterimTranscriptionText = ref('')
-const systemTranscriptionError = ref('')
-const systemWs = ref(null)
-const systemAudioContext = ref(null)
-const systemProcessor = ref(null)
-const systemMicrophone = ref(null)
-const systemSpeakers = ref(new Map()) // Track speakers and their colors
-const systemMessages = ref([]) // Store system speaker messages
-const diarizationEnabled = ref(true) // Toggle for speaker diarization
-
-// Microphone recording state
-const micRecording = ref(false)
-const micRecordingTime = ref(0)
-const micError = ref('')
-const micSuccess = ref('')
 const micMediaRecorder = ref(null)
 const micChunks = ref([])
-let micTimer = null
+let recordingTimer = null
 
-// Transcription state
-const isTranscribing = ref(false)
-const transcriptionText = ref('')
-const finalTranscriptionText = ref('')
-const interimTranscriptionText = ref('')
+// Unified transcription state
+const systemTranscribing = ref(false)
+const micTranscribing = ref(false)
+const systemTranscriptionError = ref('')
 const transcriptionError = ref('')
-const ws = ref(null)
-const audioContext = ref(null)
-const processor = ref(null)
-const microphone = ref(null)
+const systemWs = ref(null)
+const micWs = ref(null)
+const systemAudioContext = ref(null)
+const micAudioContext = ref(null)
+const systemProcessor = ref(null)
+const micProcessor = ref(null)
+const systemMicrophone = ref(null)
+const micMicrophone = ref(null)
+const systemSpeakers = ref(new Map()) // Track speakers and their colors
+const diarizationEnabled = ref(true) // Toggle for speaker diarization
 
-// Chat messages
-const chatMessages = ref([])
+// Unified chat messages
+const allMessages = ref([]) // Combined messages from both sources
 const currentMicMessage = ref('')
 const micBurstTimer = ref(null)
 const micBurstInterval = 5000 // 5 seconds
@@ -312,7 +197,7 @@ const getSpeakerColor = (speakerId) => {
   return systemSpeakers.value.get(speakerId)
 }
 
-// Message management functions
+// Unified message management functions
 const addSystemMessage = (speakerId, speakerLabel, text, isFinal = true) => {
   if (diarizationEnabled.value) {
     // Individual speaker messages
@@ -325,14 +210,14 @@ const addSystemMessage = (speakerId, speakerLabel, text, isFinal = true) => {
       timestamp: new Date(),
       isFinal
     }
-    systemMessages.value.push(message)
+    allMessages.value.push(message)
   } else {
     // Accumulate text for burst messages (similar to mic)
-    if (!systemMessages.value.length || systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
+    if (!allMessages.value.length || allMessages.value[allMessages.value.length - 1].isAccumulating) {
       // Create new message or add to existing accumulating message
-      if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
-        systemMessages.value[systemMessages.value.length - 1].text += ' ' + text.trim()
-        systemMessages.value[systemMessages.value.length - 1].timestamp = new Date()
+      if (allMessages.value.length && allMessages.value[allMessages.value.length - 1].isAccumulating) {
+        allMessages.value[allMessages.value.length - 1].text += ' ' + text.trim()
+        allMessages.value[allMessages.value.length - 1].timestamp = new Date()
       } else {
         const message = {
           id: Date.now() + Math.random(),
@@ -344,7 +229,7 @@ const addSystemMessage = (speakerId, speakerLabel, text, isFinal = true) => {
           isFinal: false,
           isAccumulating: true
         }
-        systemMessages.value.push(message)
+        allMessages.value.push(message)
       }
     } else {
       // Create new accumulating message
@@ -358,7 +243,7 @@ const addSystemMessage = (speakerId, speakerLabel, text, isFinal = true) => {
         isFinal: false,
         isAccumulating: true
       }
-      systemMessages.value.push(message)
+      allMessages.value.push(message)
     }
   }
 }
@@ -371,7 +256,7 @@ const addMicMessage = (text, isFinal = true) => {
     timestamp: new Date(),
     isFinal
   }
-  chatMessages.value.push(message)
+  allMessages.value.push(message)
 }
 
 const startMicBurstTimer = () => {
@@ -407,9 +292,9 @@ const startSystemBurstTimer = () => {
   
   systemBurstTimer.value = setInterval(() => {
     // Finalize any accumulating system messages
-    if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
-      systemMessages.value[systemMessages.value.length - 1].isAccumulating = false
-      systemMessages.value[systemMessages.value.length - 1].isFinal = true
+    if (allMessages.value.length && allMessages.value[allMessages.value.length - 1].isAccumulating) {
+      allMessages.value[allMessages.value.length - 1].isAccumulating = false
+      allMessages.value[allMessages.value.length - 1].isFinal = true
     }
   }, systemBurstInterval)
 }
@@ -421,9 +306,52 @@ const stopSystemBurstTimer = () => {
   }
   
   // Finalize any remaining accumulating message
-  if (systemMessages.value.length && systemMessages.value[systemMessages.value.length - 1].isAccumulating) {
-    systemMessages.value[systemMessages.value.length - 1].isAccumulating = false
-    systemMessages.value[systemMessages.value.length - 1].isFinal = true
+  if (allMessages.value.length && allMessages.value[allMessages.value.length - 1].isAccumulating) {
+    allMessages.value[allMessages.value.length - 1].isAccumulating = false
+    allMessages.value[allMessages.value.length - 1].isFinal = true
+  }
+}
+
+// Unified recording functions
+const startUnifiedRecording = async () => {
+  try {
+    console.log('Starting unified recording...')
+    isRecording.value = true
+    recordingTime.value = 0
+    allMessages.value = []
+    systemSpeakers.value.clear()
+    
+    // Start system recording
+    await startSystemRecording()
+    
+    // Start microphone recording
+    await startMicRecording()
+    
+    // Start unified timer
+    recordingTimer = setInterval(() => {
+      recordingTime.value++
+    }, 1000)
+    
+  } catch (error) {
+    console.error('Error starting unified recording:', error)
+    isRecording.value = false
+  }
+}
+
+const stopUnifiedRecording = () => {
+  console.log('Stopping unified recording...')
+  isRecording.value = false
+  
+  // Stop system recording
+  stopSystemRecording()
+  
+  // Stop microphone recording
+  stopMicRecording()
+  
+  // Stop timer
+  if (recordingTimer) {
+    clearInterval(recordingTimer)
+    recordingTimer = null
   }
 }
 
@@ -434,34 +362,29 @@ onMounted(async () => {
     screenSources.value = sources
   } catch (error) {
     console.error('Error loading screen sources:', error)
-    systemError.value = 'Failed to load screen sources'
   }
 })
 
 // Cleanup on unmount
 onUnmounted(() => {
-  if (systemTimer) clearInterval(systemTimer)
-  if (micTimer) clearInterval(micTimer)
+  if (recordingTimer) clearInterval(recordingTimer)
   if (micBurstTimer.value) clearInterval(micBurstTimer.value)
   if (systemBurstTimer.value) clearInterval(systemBurstTimer.value)
   if (systemMediaRecorder.value) systemMediaRecorder.value.stop()
   if (micMediaRecorder.value) micMediaRecorder.value.stop()
   
   // Cleanup transcription
-  stopTranscription()
+  stopMicTranscription()
   stopSystemTranscription()
-  if (ws.value) ws.value.close()
+  if (micWs.value) micWs.value.close()
   if (systemWs.value) systemWs.value.close()
-  if (audioContext.value) audioContext.value.close()
+  if (micAudioContext.value) micAudioContext.value.close()
   if (systemAudioContext.value) systemAudioContext.value.close()
 })
 
 // System recording functions
 const startSystemRecording = async () => {
   try {
-    systemError.value = ''
-    systemSuccess.value = ''
-    
     const source = screenSources.value.find(s => s.id === selectedScreenSource.value)
     if (!source) {
       throw new Error('No source selected')
@@ -502,53 +425,21 @@ const startSystemRecording = async () => {
       }
     }
 
-    systemMediaRecorder.value.onstop = async () => {
-      const blob = new Blob(systemChunks.value, { type: 'video/webm' })
-      const arrayBuffer = await blob.arrayBuffer()
-      
-      try {
-        const result = await window.electronAPI.saveFile({
-          data: Array.from(new Uint8Array(arrayBuffer)),
-          filename: `system-recording-${Date.now()}.webm`,
-          type: 'video'
-        })
-        
-        if (result.success) {
-          systemSuccess.value = `Video saved to: ${result.path}`
-        }
-      } catch (error) {
-        systemError.value = 'Failed to save video file'
-      }
-    }
-
     systemMediaRecorder.value.start()
-    systemRecording.value = true
-    systemRecordingTime.value = 0
-    
-    // Start timer
-    systemTimer = setInterval(() => {
-      systemRecordingTime.value++
-    }, 1000)
 
     // Start real-time transcription for system audio
     await startSystemTranscription(stream)
 
   } catch (error) {
     console.error('Error starting system recording:', error)
-    systemError.value = `Failed to start recording: ${error.message}`
+    systemTranscriptionError.value = `Failed to start system recording: ${error.message}`
   }
 }
 
 const stopSystemRecording = () => {
-  if (systemMediaRecorder.value && systemRecording.value) {
+  if (systemMediaRecorder.value) {
     systemMediaRecorder.value.stop()
-    systemRecording.value = false
     systemPreview.value = false
-    
-    if (systemTimer) {
-      clearInterval(systemTimer)
-      systemTimer = null
-    }
 
     // Stop all tracks
     if (systemVideoRef.value && systemVideoRef.value.srcObject) {
@@ -564,10 +455,6 @@ const stopSystemRecording = () => {
 // Microphone recording functions
 const startMicRecording = async () => {
   try {
-    micError.value = ''
-    micSuccess.value = ''
-    transcriptionError.value = ''
-    
     // Get microphone access
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -590,53 +477,21 @@ const startMicRecording = async () => {
       }
     }
 
-    micMediaRecorder.value.onstop = async () => {
-      const blob = new Blob(micChunks.value, { type: 'audio/webm' })
-      const arrayBuffer = await blob.arrayBuffer()
-      
-      try {
-        const result = await window.electronAPI.saveFile({
-          data: Array.from(new Uint8Array(arrayBuffer)),
-          filename: `microphone-recording-${Date.now()}.webm`,
-          type: 'audio'
-        })
-        
-        if (result.success) {
-          micSuccess.value = `Audio saved to: ${result.path}`
-        }
-      } catch (error) {
-        micError.value = 'Failed to save audio file'
-      }
-    }
-
     micMediaRecorder.value.start()
-    micRecording.value = true
-    micRecordingTime.value = 0
-    
-    // Start timer
-    micTimer = setInterval(() => {
-      micRecordingTime.value++
-    }, 1000)
 
     // Start burst-based transcription
-    await startTranscription(stream)
+    await startMicTranscription(stream)
     startMicBurstTimer()
 
   } catch (error) {
     console.error('Error starting microphone recording:', error)
-    micError.value = `Failed to start recording: ${error.message}`
+    transcriptionError.value = `Failed to start microphone recording: ${error.message}`
   }
 }
 
 const stopMicRecording = () => {
-  if (micMediaRecorder.value && micRecording.value) {
+  if (micMediaRecorder.value) {
     micMediaRecorder.value.stop()
-    micRecording.value = false
-    
-    if (micTimer) {
-      clearInterval(micTimer)
-      micTimer = null
-    }
 
     // Stop all tracks
     if (micMediaRecorder.value.stream) {
@@ -646,7 +501,7 @@ const stopMicRecording = () => {
   }
   
   // Stop transcription and burst timer
-  stopTranscription()
+  stopMicTranscription()
   stopMicBurstTimer()
 }
 
@@ -662,32 +517,28 @@ const formatMessageTime = (timestamp) => {
   return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-// Transcription functions
-const startTranscription = async (stream) => {
+// Microphone transcription functions
+const startMicTranscription = async (stream) => {
   try {
     // Connect to WebSocket server
-    ws.value = new WebSocket('ws://localhost:3000')
+    micWs.value = new WebSocket('ws://localhost:3000')
     
-    ws.value.onopen = () => {
-      console.log('WebSocket connected')
-      isTranscribing.value = true
-      transcriptionText.value = ''
-      finalTranscriptionText.value = ''
-      interimTranscriptionText.value = ''
+    micWs.value.onopen = () => {
+      console.log('Microphone WebSocket connected')
+      micTranscribing.value = true
       transcriptionError.value = ''
       currentMicMessage.value = ''
-      chatMessages.value = [] // Clear previous messages
       
       // Send start transcription message
-      ws.value.send(JSON.stringify({
+      micWs.value.send(JSON.stringify({
         type: 'start_transcription'
       }))
       
       // Set up audio processing
-      setupAudioProcessing(stream)
+      setupMicAudioProcessing(stream)
     }
     
-    ws.value.onmessage = (event) => {
+    micWs.value.onmessage = (event) => {
       const data = JSON.parse(event.data)
       
       switch (data.type) {
@@ -696,33 +547,30 @@ const startTranscription = async (stream) => {
             if (data.is_final) {
               // Add to current mic message for burst processing
               currentMicMessage.value += data.transcript + ' '
-            } else {
-              // Update interim results (not used in burst mode)
-              interimTranscriptionText.value = data.transcript
             }
           }
           break
           
         case 'transcription_stopped':
-          isTranscribing.value = false
+          micTranscribing.value = false
           break
           
         case 'error':
           transcriptionError.value = data.message
-          isTranscribing.value = false
+          micTranscribing.value = false
           break
       }
     }
     
-    ws.value.onclose = () => {
-      console.log('WebSocket disconnected')
-      isTranscribing.value = false
+    micWs.value.onclose = () => {
+      console.log('Microphone WebSocket disconnected')
+      micTranscribing.value = false
     }
     
-    ws.value.onerror = (error) => {
-      console.error('WebSocket error:', error)
+    micWs.value.onerror = (error) => {
+      console.error('Microphone WebSocket error:', error)
       transcriptionError.value = 'Connection error occurred'
-      isTranscribing.value = false
+      micTranscribing.value = false
     }
     
   } catch (error) {
@@ -731,21 +579,21 @@ const startTranscription = async (stream) => {
   }
 }
 
-const setupAudioProcessing = (stream) => {
+const setupMicAudioProcessing = (stream) => {
   try {
     // Create audio context
-    audioContext.value = new (window.AudioContext || window.webkitAudioContext)({
+    micAudioContext.value = new (window.AudioContext || window.webkitAudioContext)({
       sampleRate: 16000
     })
     
     // Get microphone input
-    microphone.value = audioContext.value.createMediaStreamSource(stream)
+    micMicrophone.value = micAudioContext.value.createMediaStreamSource(stream)
     
     // Create script processor for real-time audio processing
-    processor.value = audioContext.value.createScriptProcessor(4096, 1, 1)
+    micProcessor.value = micAudioContext.value.createScriptProcessor(4096, 1, 1)
     
-    processor.value.onaudioprocess = (event) => {
-      if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+    micProcessor.value.onaudioprocess = (event) => {
+      if (micWs.value && micWs.value.readyState === WebSocket.OPEN) {
         const inputData = event.inputBuffer.getChannelData(0)
         
         // Convert float32 to int16
@@ -757,7 +605,7 @@ const setupAudioProcessing = (stream) => {
         // Convert to base64 and send
         const base64Data = btoa(String.fromCharCode(...new Uint8Array(int16Data.buffer)))
         
-        ws.value.send(JSON.stringify({
+        micWs.value.send(JSON.stringify({
           type: 'audio_data',
           data: base64Data
         }))
@@ -765,35 +613,35 @@ const setupAudioProcessing = (stream) => {
     }
     
     // Connect audio processing chain
-    microphone.value.connect(processor.value)
-    processor.value.connect(audioContext.value.destination)
+    micMicrophone.value.connect(micProcessor.value)
+    micProcessor.value.connect(micAudioContext.value.destination)
     
   } catch (error) {
-    console.error('Error setting up audio processing:', error)
-    transcriptionError.value = 'Failed to set up audio processing'
+    console.error('Error setting up microphone audio processing:', error)
+    transcriptionError.value = 'Failed to set up microphone audio processing'
   }
 }
 
-const stopTranscription = () => {
-  if (ws.value) {
-    ws.value.send(JSON.stringify({
+const stopMicTranscription = () => {
+  if (micWs.value) {
+    micWs.value.send(JSON.stringify({
       type: 'stop_transcription'
     }))
-    ws.value.close()
-    ws.value = null
+    micWs.value.close()
+    micWs.value = null
   }
   
-  if (processor.value) {
-    processor.value.disconnect()
-    processor.value = null
+  if (micProcessor.value) {
+    micProcessor.value.disconnect()
+    micProcessor.value = null
   }
   
-  if (microphone.value) {
-    microphone.value.disconnect()
-    microphone.value = null
+  if (micMicrophone.value) {
+    micMicrophone.value.disconnect()
+    micMicrophone.value = null
   }
   
-  isTranscribing.value = false
+  micTranscribing.value = false
 }
 
 // System transcription functions
@@ -805,12 +653,8 @@ const startSystemTranscription = async (stream) => {
     systemWs.value.onopen = () => {
       console.log('System WebSocket connected')
       systemTranscribing.value = true
-      systemTranscriptionText.value = ''
-      systemFinalTranscriptionText.value = ''
-      systemInterimTranscriptionText.value = ''
       systemTranscriptionError.value = ''
       systemSpeakers.value.clear() // Reset speakers for new session
-      systemMessages.value = [] // Clear previous messages
       
       // Send start transcription message with diarization setting
       systemWs.value.send(JSON.stringify({
@@ -960,12 +804,8 @@ const scrollToBottom = (containerClass) => {
 }
 
 // Watch for new messages and auto-scroll
-watch(systemMessages, () => {
-  scrollToBottom('system-chat')
-}, { deep: true })
-
-watch(chatMessages, () => {
-  scrollToBottom('mic-chat')
+watch(allMessages, () => {
+  scrollToBottom('unified-chat')
 }, { deep: true })
 
 // Handle diarization toggle change
@@ -1000,11 +840,131 @@ watch(diarizationEnabled, (newValue) => {
 </script>
 
 <style scoped>
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+.unified-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f8f9fa;
+}
+
+/* Unified Header */
+.unified-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.header-content h1 {
+  margin: 0 0 20px 0;
+  font-size: 2rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.controls-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.source-selector {
+  flex: 1;
+  min-width: 200px;
+}
+
+.source-select {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  backdrop-filter: blur(10px);
+}
+
+.source-select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+.source-select option {
+  background: #2c3e50;
+  color: white;
+}
+
+.main-controls {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.btn-large {
+  padding: 15px 30px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 10px;
+  min-width: 180px;
+}
+
+.status-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Unified Chat */
+.unified-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.chat-container {
+  flex: 1;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-messages {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Video Preview */
+.video-preview {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 300px;
+  height: 200px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.video-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .header {
